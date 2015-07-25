@@ -1,0 +1,75 @@
+---
+title: "Exercise Prediction Analysis"
+author: "Shawn Huang"
+date: "Friday, July 24, 2015"
+output: html_document
+---
+#Introduction
+I will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+The Weight Lifting Exercises Dataset(WLE) is cited from Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3guZK47Nc
+
+
+#Download training & test data set from the website
+At first, I download the data from the website and rename the filename.  
+```{r,download,cache=TRUE,results='hide', message=FALSE, warning=FALSE}
+if(!file.exists("./training.csv")) 
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile="./training.csv")
+if(!file.exists("./testing.csv")) 
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile="./testing.csv")
+
+```
+
+#Preprocessing data 
+The raw data downloaded from the website need to be polished before I start to use the data.  
+At first,I use read.csv function to read the data and assume "", " ", and "NA" are NA value.
+If the variable contains NA value more than 10%, I will not remove this column for the purpose of getting tidy data.Besides that, I also remove the firt 7 variables which include X, username, raw_timestamp_part_1,raw_timestamp_part_2, cvtd_timestamp,new_window and num_window.Those viriabls aren't no relationship with classe variable.
+
+```{r,loaddata, dependson = "download", cache = TRUE}
+train.set <- read.csv("training.csv", na.strings = c("", " ", "NA"))
+test.set <- read.csv("testing.csv", na.strings = c("", " ", "NA"))
+no.na.index <-apply(train.set,2, function(x) {(sum(is.na(x))/length(x)) <0.1})
+tidy.data <- train.set[,no.na.index]
+# remove the first 7 row 
+tidy.data <- tidy.data[-(1:7)]
+```
+
+#Build model & use cross validation
+At first, I use createDataPartition to split training data set and validation set. Once I get the traing set, I apply the random forest method to train the model. During training process, I use K-fold cross validation (K = 5) to resample the training set.  
+I check the final model after the training, and the OOB estimate of error rate is 0.86%. It is quite low and it shows the model is well fitted for the training set.
+```{r,buildmodel,cache=TRUE,dependson = "loaddata"}
+library(caret)
+set.seed(3333)
+subset <- createDataPartition(y=tidy.data$classe, p = 0.7, list = FALSE)
+model <- train(classe ~ ., data = tidy.data[subset, ], method = "rf",
+               trControl=trainControl(method="cv",number= 5),
+               allowParallel=TRUE)
+print(model$finalModel, digits=4)
+```
+
+#Expect out of sample error
+I use the random forest training model to predict the classe in the validation set for the purpose of checking out the sample error. In the following code, I use confusionMatrix to check the sample error.As you can see, the accurracy is 0.9927 and the confidence interval is between 0.9902 to 0.9947. The accurary looks pretty high
+
+```{r,cv,cache=TRUE, dependson= "buildmodel"}
+cross.predict <- predict(model, newdata = tidy.data[-subset, ])
+confusionMatrix(cross.predict, tidy.data[-subset, ]$classe)
+
+```
+
+#Predict 20 different test cases
+Based on the training model, I try to predict the test cases. I follow the instructions provided in prediction assignment submission and make 20 different files which contian the predicted result. 
+
+```{r,test, dependson ="buildmodel"}
+test.tidy.data <- predict(model, newdata = test.set [, no.na.index])
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(test.tidy.data)
+
+```
+
